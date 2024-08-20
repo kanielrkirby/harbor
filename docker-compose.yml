@@ -1,0 +1,142 @@
+services:
+  odoo_web:
+    image: odoo:17.0
+    depends_on:
+      - odoo_db
+    networks:
+      - odoo_network
+    ports:
+      - 8069:8069
+    volumes:
+      - ./odoo/web_data:/var/lib/odoo
+      - ./odoo/config:/etc/odoo
+      - ./odoo/addons:/mnt/extra-addons
+      - ./odoo/enterprise-17.0:/mnt/enterprise
+    env_file: ./odoo/.env
+
+  odoo_db:
+    image: postgres:15
+    expose:
+      - 5432
+    networks:
+      odoo_network:
+        aliases:
+          - db
+    volumes:
+      - ./odoo/db_data:/var/lib/postgresql/data/pgdata
+    env_file: ./odoo/.env
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+
+  snappymail:
+    image: djmaze/snappymail:v2.36.4
+    ports:
+      - 8888:8888
+    environment:
+      - DEBUG=true
+    volumes:
+      - snappymail:/var/lib/snappymail
+    restart: unless-stopped
+
+  blog:
+    image: thecachedexception
+    build: https://github.com/kanielrkirby/blog.git#main
+    ports:
+      - 4321:4321
+
+  # tui.editor:
+  #   image: tui.editor
+  #   build: ./tui.editor
+  #   ports:
+  #     - 4564:8080
+
+  outline:
+    image: docker.getoutline.com/outlinewiki/outline:latest
+    env_file: outline/.env
+    ports:
+      - 3034:3035
+    depends_on:
+      - outline_db
+      - outline_redis
+      - keycloak
+      - outline_forward_to_keycloak
+    networks:
+      - keycloak_network
+      - outline_network
+
+  outline_db:
+    image: postgres:15
+    env_file: ./outline/.env
+    expose:
+      - 5432
+    volumes:
+      - ./outline/data:/var/lib/postgresql/data
+    networks:
+      outline_network:
+        aliases:
+          - postgres
+
+  outline_redis:
+    image: redis
+    env_file: ./outline/.env
+    expose:
+      - 6379
+    volumes:
+      - ./outline/redis.conf:/redis.conf
+    command: ["redis-server", "/redis.conf"]
+    networks:
+      outline_network:
+        aliases:
+          - redis
+
+  keycloak:
+    image: keycloak/keycloak:25.0.2
+    expose:
+      - 8621
+    env_file: ./keycloak/.env
+    command: start-dev --proxy-headers xforwarded --http-port=8621
+    volumes:
+      - ./keycloak/data:/opt/keycloak/data/
+    networks:
+      keycloak_network:
+    hostname: keycloak
+
+  outline_forward_to_keycloak:
+    image: nginx:latest
+    ports:
+      - 8621:8621
+    volumes:
+      - ./keycloak/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - keycloak_network
+    depends_on:
+      - keycloak
+
+volumes:
+  snappymail:
+    driver: local
+
+networks:
+  odoo_network:
+  outline_network:
+  keycloak_network:
+    external: true
+
+  # outline_portal:
+  #   image: steveltn/https-portal
+  #   env_file: ./outline/.env
+  #   ports:
+  #     - '2301:80'
+  #     - '2401:443'
+  #   links:
+  #     - outline
+  #   restart: always
+  #   volumes:
+  #     - https-portal-data:/var/lib/https-portal
+  #   networks:
+  #     outline_network:
+  #   environment:
+  #     # DOMAINS: 'docs.mycompany.com -> http://outline:3034'
+  #     STAGE: 'production'
+  #     WEBSOCKET: 'true'
+  #     CLIENT_MAX_BODY_SIZE: '0'
